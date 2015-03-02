@@ -22,3 +22,6 @@ SOURCES += main.cpp
 
 HEADERS += \
     cont.h
+
+OTHER_FILES += \
+    README.md
