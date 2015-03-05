@@ -34,15 +34,15 @@ int main(int argc, char *argv[])
 {
 	QCoreApplication a(argc, argv);
 
-	IntIntCont myCont = unit<int, int>(1) >>= std::function<IntIntCont(int)>([](int i) -> IntIntCont {
-		return unit<int, int>(i + 1);
+	IntIntCont myCont = pure<int, int>(1) >>= std::function<IntIntCont(int)>([](int i) -> IntIntCont {
+		return pure<int, int>(i + 1);
 	});
 	qDebug() << ">>=" << myCont.evalCont();
 
-	qDebug() << "join" << join<IntCont, int>(unit<int, IntCont<int>>(unit<int, int>(1))).evalCont();
+	qDebug() << "join" << join<IntCont, int>(pure<int, IntIntCont>(pure<int, int>(1))).evalCont();
 
-	IntIntCont myCont2 = ((IntIntCont)unit<int, int>(1)) >> std::function<IntIntCont()>([]() -> IntIntCont {
-		return unit<int, int>(42);
+	IntIntCont myCont2 = ((IntIntCont)pure<int, int>(1)) >> std::function<IntIntCont()>([]() -> IntIntCont {
+		return pure<int, int>(42);
 	});
 	qDebug() << ">>" << myCont2.evalCont();
 
@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
 		grabLinks(QUrl("http://www.heise.de")) >>= std::function<VoidVoidCont(QList<QUrl>)>([&a](QList<QUrl> urls){
 		qDebug() << "urls:" << urls;
 		a.exit();
-		return unit(true);
+		return pure(true);
 	})).evalCont();
 
 
@@ -64,7 +64,7 @@ UrlContinuatoin grabLinks(const QUrl& url)
 	QSharedPointer<QNetworkAccessManager> nam(new QNetworkAccessManager());
 	return waitForReplyFinished(nam->get(QNetworkRequest(url))) >>= std::function<UrlContinuatoin(QNetworkReply*)>([url, nam](QNetworkReply* rep) -> UrlContinuatoin {
 //		qDebug() << "grabLinks";
-		return unit(scrapUrls(url, rep));
+		return pure(scrapUrls(url, rep));
 	});
 }
 

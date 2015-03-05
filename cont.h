@@ -35,7 +35,7 @@ Cont<R, A>::Cont(const typename Cont<R, A>::Type &func):
 // :: Cont r a
 template<typename R, typename A>
 Cont<R, A>::Cont():
-	m_Cont(unit(A()).m_Cont)
+	m_Cont(pure(A()).m_Cont)
 {
 }
 
@@ -67,7 +67,7 @@ R Cont<R, A>::evalCont() const
 //    return x = cont ($ x)
 //    s >>= f  = cont $ \c -> runCont s $ \x -> runCont (f x) c
 template<typename R, typename A>
-Cont<R, A> unit(A x)
+Cont<R, A> pure(A x)
 {
 	return Cont<R, A>([x](typename Cont<R, A>::Inner f) -> R {
 		return f(x);
@@ -129,7 +129,7 @@ Cont<void, A>::Cont(const typename Cont<void, A>::Type &func):
 // :: Cont () a
 template<typename A>
 Cont<void, A>::Cont():
-	m_Cont(unit(A()).m_Cont)
+	m_Cont(pure(A()).m_Cont)
 {
 }
 
@@ -157,7 +157,7 @@ void Cont<void, A>::evalCont() const
 //    return x = cont ($ x)
 //    s >>= f  = cont $ \c -> runCont s $ \x -> runCont (f x) c
 template<typename A>
-Cont<void, A> unit(A x)
+Cont<void, A> pure(A x)
 {
 	return Cont<void, A>([x](typename Cont<void, A>::Inner f) -> void {
 		f(x);
