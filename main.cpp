@@ -17,14 +17,14 @@
 
 #include "cont.h"
 
-template<class T> using IntCont = Cont<int, T>;
-template<class T> using VoidCont = Cont<void, T>;
+struct Unit {};
+Q_DECLARE_METATYPE(Unit)
 
-typedef IntCont<int> IntIntCont;
+typedef Cont<int> IntCont;
+typedef Cont<Unit> VoidCont;
 
-typedef VoidCont<bool> VoidVoidCont;
-typedef VoidCont<QList<QUrl>> UrlContinuatoin;
-typedef VoidCont<QNetworkReply*> ReplyContinuatoin;
+typedef Cont<QList<QUrl>> UrlContinuatoin;
+typedef Cont<QNetworkReply*> ReplyContinuatoin;
 
 ReplyContinuatoin waitForReplyFinished(QNetworkReply *rep);
 UrlContinuatoin grabLinks(const QUrl& url);
@@ -34,25 +34,31 @@ int main(int argc, char *argv[])
 {
 	QCoreApplication a(argc, argv);
 
-	IntIntCont myCont = pure<int, int>(1) >>= std::function<IntIntCont(int)>([](int i) -> IntIntCont {
-		return pure<int, int>(i + 1);
+	// Continuation monad
+
+	IntCont myCont = pure<Cont, int>(1) >>= std::function<IntCont(int)>([](int i) -> IntCont {
+		return pure<Cont, int>(i + 1);
 	});
 	qDebug() << ">>=" << myCont.evalCont();
 
-	qDebug() << "join" << join<IntCont, int>(pure<int, IntIntCont>(pure<int, int>(1))).evalCont();
+	qDebug() << "join" << join<Cont, int>(pure<Cont, Cont<int>>(pure<Cont, int>(1))).evalCont();
 
-	IntIntCont myCont2 = ((IntIntCont)pure<int, int>(1)) >> std::function<IntIntCont()>([]() -> IntIntCont {
-		return pure<int, int>(42);
+	IntCont myCont2 = ((IntCont)pure<Cont, int>(1)) >> std::function<IntCont()>([]() -> IntCont {
+		return pure<Cont, int>(42);
 	});
 	qDebug() << ">>" << myCont2.evalCont();
 
 	(
-		grabLinks(QUrl("http://www.heise.de")) >>= std::function<VoidVoidCont(QList<QUrl>)>([&a](QList<QUrl> urls){
-		qDebug() << "urls:" << urls;
+		grabLinks(QUrl("http://www.heise.de")) >>= std::function<VoidCont(QList<QUrl>)>([&a](QList<QUrl> urls) -> VoidCont {
+		qDebug() << "urls.len():" << urls.length();
 		a.exit();
-		return pure(true);
+		return pure<Cont, Unit>(Unit());
 	})).evalCont();
 
+
+	// Maybe Monad
+	qDebug() << join<Maybe, int>(pure<Maybe, Maybe<int>>(pure<Maybe, int>(42))).fromJust();
+	qDebug() << (pure<Maybe, int>(42) >> std::function<Maybe<int>()>([](){return Maybe<int>();})).isJust();
 
 	// return 0;
 	return a.exec();
@@ -64,7 +70,7 @@ UrlContinuatoin grabLinks(const QUrl& url)
 	QSharedPointer<QNetworkAccessManager> nam(new QNetworkAccessManager());
 	return waitForReplyFinished(nam->get(QNetworkRequest(url))) >>= std::function<UrlContinuatoin(QNetworkReply*)>([url, nam](QNetworkReply* rep) -> UrlContinuatoin {
 //		qDebug() << "grabLinks";
-		return pure(scrapUrls(url, rep));
+		return pure<Cont, QList<QUrl>>(scrapUrls(url, rep));
 	});
 }
 
@@ -97,11 +103,12 @@ QList<QUrl> scrapUrls(const QUrl& base, QIODevice* dev)
 ReplyContinuatoin waitForReplyFinished(QNetworkReply *rep)
 {
 	return ReplyContinuatoin (
-		[rep](ReplyContinuatoin::Inner inner) -> void {
-			QObject::connect(rep, &QNetworkReply::finished, [inner, rep](){
+		[rep](ReplyContinuatoin::Inner inner) -> QVariant {
+			QObject::connect(rep, &QNetworkReply::finished, [inner, rep]() -> void {
 //				qDebug() << "waitForReplyFinished";
 				inner(rep);
 			});
+			return QVariant();
 		}
 	);
 }
