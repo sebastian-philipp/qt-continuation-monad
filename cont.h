@@ -9,34 +9,13 @@
 #define CONT_H
 
 #include <functional>
+
+// fold aka accumulate
+#include <numeric>
+
+#include <boost/optional.hpp>
+
 #include <QVariant>
-
-
-//join              :: (Monad m) => m (m a) -> m a
-//join x            =  x >>= id
-
-template <template <typename> class M, typename A>
-M<A> join(const M<M<A>> x)
-{
-	return x >>= std::function<M<A>(M<A>)>([](M<A> y) -> M<A>{
-		return y;
-	});
-}
-
-
-// (>>) :: forall a b. m a -> m b -> m b
-// m >> k = m >>= \_ -> k
-// If you get this error here:
-// "note: candidate template ignored: substitution failure : template template argument
-//   has different template parameters than its corresponding template template parameter"
-// then you need to define your own operator >>
-template<template <typename> class M, typename A, typename B>
-M<B> operator >> (M<A> m, std::function<M<B>()> k)
-{
-	return (m >>= std::function<M<B>(A)>([k](A) -> M<B> {
-		return k();
-	}));
-}
 
 
 //
@@ -109,6 +88,7 @@ pure(A x)
 	});
 }
 
+// (>>=) :: Cont a -> (a -> Cont b) -> Cont b
 template<typename A, typename B>
 Cont<B> operator >>= (Cont<A> s, std::function<Cont<B>(A)> f)
 {
@@ -128,72 +108,107 @@ Cont<A> abortContWith(QVariant r)
 }
 
 //
-// Maybe monad:
+// Monad instance for boost::optional:
 //
 
-// data Cont r a = Cont { runCont :: (a -> r) -> r }
-template<typename A>
-struct Maybe {
 
-	const QScopedPointer<A> m_Val;
-
-	Maybe(const A& val);
-	Maybe(const Maybe& rhs);
-	Maybe();
-
-	bool isJust() const;
-	const A& fromJust() const;
-};
-
-template<typename A>
-Maybe<A>::Maybe():
-	m_Val()
-{
-
-}
-
-template<typename A>
-Maybe<A>::Maybe(const A& val):
-	m_Val(new A(val))
-{
-
-}
-
-template<typename A>
-Maybe<A>::Maybe(const Maybe<A>& rhs):
-	m_Val(rhs.m_Val ?  new A(*(rhs.m_Val)) : nullptr)
-{
-
-}
-
-
-template<typename A>
-bool Maybe<A>::isJust() const
-{
-	return !m_Val.isNull();
-}
-
-template<typename A>
-const A& Maybe<A>::fromJust() const
-{
-	return *m_Val;
-}
-
+// pure :: a -> Maybe a
 template<template <typename> class M , typename A>
-inline typename std::enable_if<std::is_same<M<A>, Maybe<A>>::value, Maybe<A>>::type // required for return type dispatching
+inline typename std::enable_if<std::is_same<M<A>, boost::optional<A>>::value, boost::optional<A>>::type // required for return type dispatching
 pure(A x)
 {
-	return Maybe<A>(x);
+	return boost::optional<A>(x);
 }
 
 template<typename A, typename B>
-Maybe<B> operator >>= (Maybe<A> s, std::function<Maybe<B>(A)> f)
+boost::optional<B> operator >>= (boost::optional<A> s, std::function<boost::optional<B>(A)> f)
 {
-	if (s.isJust()) {
-		return f(s.fromJust());
+	if (s) {
+		return f(s.get());
 	} else {
-		return Maybe<B>();
+		return boost::optional<B>();
 	}
+}
+
+template <class T>
+inline QDebug operator<<(QDebug debug, const boost::optional<T> &m)
+{
+	if (m) {
+		debug.nospace() << "boost::optional(" << m.get() << ")";
+	} else {
+		debug.nospace() << "Nothing()";
+	}
+	return debug.maybeSpace();
+}
+
+
+// ---------------------------------
+
+
+//join              :: (Monad m) => m (m a) -> m a
+//join x            =  x >>= id
+
+template <template <typename> class M, typename A>
+M<A> join(const M<M<A>> x)
+{
+	return x >>= std::function<M<A>(M<A>)>([](M<A> y) -> M<A>{
+		return y;
+	});
+}
+
+// (>>) :: forall a b. m a -> m b -> m b
+// m >> k = m >>= \_ -> k
+// If you get this error here:
+template<template <typename> class M, typename A, typename B>
+M<B> operator >> (M<A> m, std::function<M<B>()> k)
+{
+	return (m >>= std::function<M<B>(A)>([k](A) -> M<B> {
+		return k();
+	}));
+}
+
+
+// sequence :: (Monad m, Traversable t) => t (m a) -> m (t a)
+template<template <typename> class M, template <typename> class T, typename A>
+M<T<A>> sequence(T<M<A>> x)
+{
+//	sequence ms = foldr k (return []) ms
+//	            where
+//	              k m mm = do { x <- m; xs <- mm; return (x:xs) }
+	return std::accumulate(std::begin(x), std::end(x), pure<M, T<A>>(T<A>()),
+		[](const M<T<A>>& mm, M<A> m) -> M<T<A>>{
+			return ( m >>= std::function<M<T<A>>(A)>   ([mm](A x)     -> M<T<A>> {
+			return (mm >>= std::function<M<T<A>>(T<A>)>([x ](T<A> xs) -> M<T<A>> {
+				xs.push_back(x);
+			return pure<M,T<A>>(xs);
+			}));}));});
+}
+
+// Promote a function to a monad.
+// liftM   :: (Monad m) => (a1 -> r) -> m a1 -> m r
+template<template <typename> class M, typename A, typename R>
+M<R> liftM(std::function<R(A)> f, M<A> m1)
+{
+	// liftM f m1              = do { x1 <- m1; return (f x1) }
+	return m1 >>= std::function<M<R>(A)>([f](A x1) -> M<R>{
+	return pure<M,R>(f(x1));
+	});
+}
+
+// promote a function to a traversable
+template<template <typename> class T, class A, class B>
+T<B> fmap(std::function<B(A)> f, T<A> as) {
+	T<B> bs;
+	std::transform(std::begin(as), std::end(as), std::back_inserter(bs), f);
+	return bs;
+}
+
+// mapM :: Monad m => (a -> m b) -> [a] -> m [b]
+template<template <typename> class M, template <typename> class T, typename A, typename B>
+M<T<B>> mapM(std::function<M<B>(A)> f, T<A> as)
+{
+	// mapM f as       =  sequence (map f as)
+	return sequence<M,T,B>(fmap<T,A,M<B>>(f, as));
 }
 
 

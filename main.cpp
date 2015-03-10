@@ -57,9 +57,20 @@ int main(int argc, char *argv[])
 
 
 	// Maybe Monad
-	qDebug() << join<Maybe, int>(pure<Maybe, Maybe<int>>(pure<Maybe, int>(42))).fromJust();
-	qDebug() << (pure<Maybe, int>(42) >> std::function<Maybe<int>()>([](){return Maybe<int>();})).isJust();
+	qDebug() << pure<boost::optional, int>(42);
+	qDebug() << (pure<boost::optional, int>(42) >>= std::function<boost::optional<int>(int)>([](int i) -> boost::optional<int> {return boost::optional<int>(i);}));
+	qDebug() << (pure<boost::optional, int>(42) >> std::function<boost::optional<int>()>([]() -> boost::optional<int> {return boost::optional<int>();}));
+	qDebug() << join<boost::optional, int>(pure<boost::optional, boost::optional<int>>(pure<boost::optional, int>(42))).get();
 
+	// sequence
+	qDebug() << sequence<boost::optional, QList, int>(QList<boost::optional<int>>{ boost::optional<int>(3), boost::optional<int>(4) , boost::optional<int>(5) });
+	qDebug() << sequence<boost::optional, QList, int>(QList<boost::optional<int>>{ boost::optional<int>(3), boost::optional<int>() , boost::optional<int>(5) });
+	// qDebug() << sequence<boost::optional, std::vector, int>(std::vector<boost::optional<int>> { boost::optional<int>(3), boost::optional<int>(4) , boost::optional<int>(5) }); ?
+
+	// mapM
+	qDebug() << mapM<boost::optional, QList, int, QString>([](int i){
+		return boost::optional<QString>(QString::number(i * 10, 16));
+	},QList<int>{1,2,3,4,5,6,7,8,9});
 	// return 0;
 	return a.exec();
 }
@@ -83,7 +94,7 @@ QList<QUrl> scrapUrls(const QUrl& base, QIODevice* dev)
 		const QUrl& m_Base;
 		Handler(const QUrl& b, QList<QUrl>& u): m_Urls(u), m_Base(b){}
 
-		void foundTag(Node node, bool isEnd) {
+		void foundTag(Node node, bool) {
 			if (node.tagName() == "a") {
 				node.parseAttributes();
 //				qDebug() << "Read Start Tag : " << QString::fromStdString(node.tagName()) << QString::fromStdString(node.attribute("href").second);
