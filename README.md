@@ -7,6 +7,13 @@ Source
 ------
 Wikibooks: [Continuation passing style][wikibooks]
 
+Supported Platforms
+-------------------
+
+VS2012
+GCC 4.7
+clang 3.4
+
 
 See also
 --------

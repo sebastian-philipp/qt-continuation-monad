@@ -32,6 +32,7 @@ struct Cont {
 	Cont(const Type& func);
 
 	Cont(); // dont use. Requires default constructor for A
+	bool operator == (const Cont<A>& rhs) const {return this == &rhs;}
 
 	Type runCont() const;
 	QVariant runCont1(Inner f) const;
@@ -107,6 +108,16 @@ Cont<A> abortContWith(QVariant r)
 	}));
 }
 
+#include <QHash>
+
+template<typename T>
+inline uint qHash(const Cont<T> &c, uint seed)
+//	Q_DECL_NOEXCEPT_EXPR(noexcept(qHash(c)))
+{
+	return qHash((quintptr)seed ^ reinterpret_cast<quintptr>(&c));
+}
+
+
 //
 // Monad instance for boost::optional:
 //
@@ -140,6 +151,68 @@ inline QDebug operator<<(QDebug debug, const boost::optional<T> &m)
 	}
 	return debug.maybeSpace();
 }
+
+//
+// Monad instance for QSet:
+//
+
+#include <QSet>
+
+template<typename T>
+inline uint qHash(const QSet<T> &s, uint seed)
+//	Q_DECL_NOEXCEPT_EXPR(noexcept(qHash(s)))
+{
+	uint hash = seed;
+	foreach(const T& t, s){
+		return (hash = hash ^ qHash(t));
+	}
+	return hash;
+}
+
+// functor instance
+template<template <typename> class F, class A, class B>
+inline typename std::enable_if<std::is_same<F<A>, QSet<A>>::value, QSet<B>>::type
+fmap(std::function<B(A)> f, F<A> as) {
+	F<B> bs;
+	foreach(const A& a, as) {
+		bs.insert(f(a));
+	}
+	return bs;
+}
+
+// pure :: a -> Maybe a
+template<template <typename> class M , typename A>
+inline typename std::enable_if<std::is_same<M<A>, QSet<A>>::value, QSet<A>>::type // required for return type dispatching
+pure(A x)
+{
+	return QSet<A>(x);
+}
+
+template<typename A, typename B>
+QSet<B> operator >>= (QSet<A> s, std::function<QSet<B>(A)> f)
+{
+	QSet<B> ret;
+	foreach (const QSet<B>& ss, fmap(f, s)) {
+		ret.unite(ss);
+	}
+	return ret;
+}
+
+//
+// Monad instance for QList:
+//
+
+#include <QList>
+
+// functor instance
+template<template <typename> class F, class A, class B>
+inline typename std::enable_if<std::is_same<F<A>, QList<A>>::value, QList<B>>::type
+fmap(std::function<B(A)> f, F<A> as) {
+	F<B> bs;
+	std::transform(std::begin(as), std::end(as), std::back_inserter(bs), f);
+	return bs;
+}
+
 
 
 // ---------------------------------
@@ -179,7 +252,7 @@ M<T<A>> sequence(T<M<A>> x)
 		[](const M<T<A>>& mm, M<A> m) -> M<T<A>>{
 			return ( m >>= std::function<M<T<A>>(A)>   ([mm](A x)     -> M<T<A>> {
 			return (mm >>= std::function<M<T<A>>(T<A>)>([x ](T<A> xs) -> M<T<A>> {
-				xs.push_back(x);
+				xs += x;
 			return pure<M,T<A>>(xs);
 			}));}));});
 }
@@ -193,14 +266,6 @@ M<R> liftM(std::function<R(A)> f, M<A> m1)
 	return m1 >>= std::function<M<R>(A)>([f](A x1) -> M<R>{
 	return pure<M,R>(f(x1));
 	});
-}
-
-// promote a function to a traversable
-template<template <typename> class T, class A, class B>
-T<B> fmap(std::function<B(A)> f, T<A> as) {
-	T<B> bs;
-	std::transform(std::begin(as), std::end(as), std::back_inserter(bs), f);
-	return bs;
 }
 
 // mapM :: Monad m => (a -> m b) -> [a] -> m [b]

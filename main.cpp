@@ -23,18 +23,21 @@ Q_DECLARE_METATYPE(Unit)
 typedef Cont<int> IntCont;
 typedef Cont<Unit> VoidCont;
 
-typedef Cont<QList<QUrl>> UrlContinuatoin;
+typedef Cont<QSet<QUrl>> UrlContinuation;
 typedef Cont<QNetworkReply*> ReplyContinuatoin;
 
 ReplyContinuatoin waitForReplyFinished(QNetworkReply *rep);
-UrlContinuatoin grabLinks(const QUrl& url);
-QList<QUrl> scrapUrls(const QUrl& base, QIODevice* dev);
+UrlContinuation grabLinks(const QUrl& url, int depth);
+QSet<QUrl> scrapUrls(const QUrl& base, QIODevice* dev);
+
+QNetworkAccessManager *nam = 0;
 
 int main(int argc, char *argv[])
 {
 	QCoreApplication a(argc, argv);
 
 	// Continuation monad
+	nam = new QNetworkAccessManager();
 
 	IntCont myCont = pure<Cont, int>(1) >>= std::function<IntCont(int)>([](int i) -> IntCont {
 		return pure<Cont, int>(i + 1);
@@ -49,8 +52,8 @@ int main(int argc, char *argv[])
 	qDebug() << ">>" << myCont2.evalCont();
 
 	(
-		grabLinks(QUrl("http://www.heise.de")) >>= std::function<VoidCont(QList<QUrl>)>([&a](QList<QUrl> urls) -> VoidCont {
-		qDebug() << "urls.len():" << urls.length();
+		grabLinks(QUrl("http://www.teamdrive.com/de/home.html"), 1) >>= std::function<VoidCont(QSet<QUrl>)>([&a](QSet<QUrl> urls) -> VoidCont {
+		qDebug() << "urls.len():" << urls;
 		a.exit();
 		return pure<Cont, Unit>(Unit());
 	})).evalCont();
@@ -76,23 +79,28 @@ int main(int argc, char *argv[])
 }
 
 
-UrlContinuatoin grabLinks(const QUrl& url)
+UrlContinuation grabLinks(const QUrl& url, int depth)
 {
-	QSharedPointer<QNetworkAccessManager> nam(new QNetworkAccessManager());
-	return waitForReplyFinished(nam->get(QNetworkRequest(url))) >>= std::function<UrlContinuatoin(QNetworkReply*)>([url, nam](QNetworkReply* rep) -> UrlContinuatoin {
-//		qDebug() << "grabLinks";
-		return pure<Cont, QList<QUrl>>(scrapUrls(url, rep));
-	});
+	if (depth <= 0)
+		return pure<Cont, QSet<QUrl>>(QSet<QUrl>() << url);
+	return waitForReplyFinished(nam->get(QNetworkRequest(url))) >>= std::function<UrlContinuation(QNetworkReply*)>([url, depth](QNetworkReply* rep) -> UrlContinuation {
+		QSet<QUrl> urls = scrapUrls(url, rep);
+	return mapM<Cont, QSet, QUrl, QSet<QUrl>>(std::function<UrlContinuation(QUrl)>([depth](QUrl u){
+//				qDebug() << "grabLinks(u, depth-1)" << u;
+				return grabLinks(u, depth-1);
+			}), urls) >>= std::function<UrlContinuation(QSet<QSet<QUrl>>)>([](QSet<QSet<QUrl>> uurls){
+	return pure<Cont, QSet<QUrl>>(join<QSet,QUrl>(uurls));
+	});});
 }
 
 
-QList<QUrl> scrapUrls(const QUrl& base, QIODevice* dev)
+QSet<QUrl> scrapUrls(const QUrl& base, QIODevice* dev)
 {
 	using namespace htmlcxx::HTML;
 	struct Handler: ParserSax {
-		QList<QUrl>& m_Urls;
+		QSet<QUrl>& m_Urls;
 		const QUrl& m_Base;
-		Handler(const QUrl& b, QList<QUrl>& u): m_Urls(u), m_Base(b){}
+		Handler(const QUrl& b, QSet<QUrl>& u): m_Urls(u), m_Base(b){}
 
 		void foundTag(Node node, bool) {
 			if (node.tagName() == "a") {
@@ -105,7 +113,7 @@ QList<QUrl> scrapUrls(const QUrl& base, QIODevice* dev)
 			}
 		}
 	};
-	QList<QUrl> urls;
+	QSet<QUrl> urls;
 	Handler xml(base, urls);
 	xml.parse(QString::fromUtf8(dev->readAll()).toStdString());
 	return urls;
