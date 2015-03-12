@@ -11,6 +11,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
+#include <QTimer>
 
 #include <htmlcxx/html/ParserSax.h>
 
@@ -52,7 +53,7 @@ int main(int argc, char *argv[])
 	qDebug() << ">>" << myCont2.evalCont();
 
 	(
-		grabLinks(QUrl("http://www.teamdrive.com/de/home.html"), 1) >>= std::function<VoidCont(QSet<QUrl>)>([&a](QSet<QUrl> urls) -> VoidCont {
+		grabLinks(QUrl("http://www.teamdrive.com/"), 2) >>= std::function<VoidCont(QSet<QUrl>)>([&a](QSet<QUrl> urls) -> VoidCont {
 		qDebug() << "urls.len():" << urls;
 		a.exit();
 		return pure<Cont, Unit>(Unit());
@@ -123,9 +124,20 @@ ReplyContinuatoin waitForReplyFinished(QNetworkReply *rep)
 {
 	return ReplyContinuatoin (
 		[rep](ReplyContinuatoin::Inner inner) -> QVariant {
-			QObject::connect(rep, &QNetworkReply::finished, [inner, rep]() -> void {
+			if (rep->isFinished()) {
+				return inner(rep);
+			}
+			QObject* guard = new QObject();
+			qDebug() << rep->request().url();
+			QObject::connect(rep, &QNetworkReply::finished, guard, [guard, inner, rep]() -> void {
 //				qDebug() << "waitForReplyFinished";
+				delete guard;
+				rep->deleteLater();
 				inner(rep);
+			});
+			QTimer::singleShot(10000, guard, [guard, rep](){
+				qDebug() << "Killing request after 10s" << rep->request().url();
+				rep->abort();
 			});
 			return QVariant();
 		}
