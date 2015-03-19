@@ -18,10 +18,10 @@ clang 3.4
 See also
 --------
 Ivan Čukić: Natural task scheduling using futures and continuations: [Youtube][youtube]
-
+GitHub: [The Functional Template Library][ftl]
 
 [youtube]: https://www.youtube.com/watch?v=LSCamsfwYQU "Ivan Čukić: Natural task scheduling using futures and continuations"
 [wikibooks]: http://en.wikibooks.org/wiki/Haskell/Continuation_passing_style "Wikibooks: Continuation passing style"
-
+[ftl]: https://github.com/beark/ftl "GitHub: The Functional Template Library"
 
 
