@@ -17,6 +17,39 @@
 
 #include <QVariant>
 
+template<template <typename> class M, typename B>
+struct Monad {
+	typedef B ValueT;
+//	typedef M MonadT;
+
+	static M<B> pure(B);
+
+	template<typename A>
+	static M<B> bind(M<A>, std::function<M<B>(A)>);
+};
+
+template<template <typename> class M, typename A>
+M<A> pure(A x)
+{
+	return Monad<M,A>::pure(x);
+}
+
+template<template <typename> class M, typename A, typename B>
+M<B> operator >>= (M<A> s, std::function<M<B>(A)> f)
+{
+	return Monad<M,B>::bind(s, f);
+}
+
+
+template<template <typename> class M, typename A, typename F>
+auto operator >>= (M<A> s, F f) -> decltype(f(A()))
+{
+	return s >>= std::function<decltype(f(A()))(A)>(f);
+}
+
+
+
+
 
 //
 // Continuation monad:
@@ -77,28 +110,49 @@ QVariant Cont<A>::evalCont() const
 	});
 }
 
-//instance Monad (Cont r) where
-//    return x = cont ($ x)
-//    s >>= f  = cont $ \c -> runCont s $ \x -> runCont (f x) c
-template<template <typename> class M , typename A>
-inline typename std::enable_if<std::is_same<M<A>, Cont<A>>::value, Cont<A>>::type // required for return type dispatching
-pure(A x)
-{
-	return Cont<A>([x](typename Cont<A>::Inner f) -> QVariant {
-		return f(x);
-	});
-}
+////instance Monad (Cont r) where
+////    return x = cont ($ x)
+////    s >>= f  = cont $ \c -> runCont s $ \x -> runCont (f x) c
+//template<template <typename> class M , typename A>
+//inline typename std::enable_if<std::is_same<M<A>, Cont<A>>::value, Cont<A>>::type // required for return type dispatching
+//pure(A x)
+//{
+//	return Cont<A>([x](typename Cont<A>::Inner f) -> QVariant {
+//		return f(x);
+//	});
+//}
 
-// (>>=) :: Cont a -> (a -> Cont b) -> Cont b
-template<typename A, typename B>
-Cont<B> operator >>= (Cont<A> s, std::function<Cont<B>(A)> f)
+//// (>>=) :: Cont a -> (a -> Cont b) -> Cont b
+//template<typename A, typename B>
+//Cont<B> operator >>= (Cont<A> s, std::function<Cont<B>(A)> f)
+//{
+//	return Cont<B>([f, s](std::function<QVariant(B)> c) -> QVariant {
+//		return s.runCont1([f, c](A x) -> QVariant {
+//			return f(x).runCont1(c);
+//		});
+//	});
+//}
+
+template<typename B>
+struct Monad<Cont, B>
 {
-	return Cont<B>([f, s](std::function<QVariant(B)> c) -> QVariant {
-		return s.runCont1([f, c](A x) -> QVariant {
-			return f(x).runCont1(c);
+	static Cont<B> pure(B x)
+	{
+		return Cont<B>([x](typename Cont<B>::Inner f) -> QVariant {
+			return f(x);
 		});
-	});
-}
+	}
+
+	template<typename A>
+	static Cont<B> bind(Cont<A> s, std::function<Cont<B>(A)> f)
+	{
+		return Cont<B>([f, s](std::function<QVariant(B)> c) -> QVariant {
+			return s.runCont1([f, c](A x) -> QVariant {
+				return f(x).runCont1(c);
+			});
+		});
+	}
+};
 
 template<typename A>
 Cont<A> abortContWith(QVariant r)
@@ -123,23 +177,44 @@ inline uint qHash(const Cont<T> &c, uint seed)
 //
 
 
-// pure :: a -> Maybe a
-template<template <typename> class M , typename A>
-inline typename std::enable_if<std::is_same<M<A>, boost::optional<A>>::value, boost::optional<A>>::type // required for return type dispatching
-pure(A x)
-{
-	return boost::optional<A>(x);
-}
+//// pure :: a -> Maybe a
+//template<template <typename> class M , typename A>
+//inline typename std::enable_if<std::is_same<M<A>, boost::optional<A>>::value, boost::optional<A>>::type // required for return type dispatching
+//pure(A x)
+//{
+//	return boost::optional<A>(x);
+//}
 
-template<typename A, typename B>
-boost::optional<B> operator >>= (boost::optional<A> s, std::function<boost::optional<B>(A)> f)
+//template<typename A, typename B>
+//boost::optional<B> operator >>= (boost::optional<A> s, std::function<boost::optional<B>(A)> f)
+//{
+//	if (s) {
+//		return f(s.get());
+//	} else {
+//		return boost::optional<B>();
+//	}
+//}
+
+
+template<typename B>
+struct Monad<boost::optional, B>
 {
-	if (s) {
-		return f(s.get());
-	} else {
-		return boost::optional<B>();
+	static boost::optional<B> pure(B x)
+	{
+		return boost::optional<B>(x);
 	}
-}
+
+	template<typename A>
+	static boost::optional<B> bind(boost::optional<A> s, std::function<boost::optional<B>(A)> f)
+	{
+		if (s) {
+			return f(s.get());
+		} else {
+			return boost::optional<B>();
+		}
+	}
+};
+
 
 template <class T>
 inline QDebug operator<<(QDebug debug, const boost::optional<T> &m)
@@ -180,23 +255,44 @@ fmap(std::function<B(A)> f, F<A> as) {
 	return bs;
 }
 
-// pure :: a -> Maybe a
-template<template <typename> class M , typename A>
-inline typename std::enable_if<std::is_same<M<A>, QSet<A>>::value, QSet<A>>::type // required for return type dispatching
-pure(A x)
-{
-	return QSet<A>(x);
-}
+//// pure :: a -> Maybe a
+//template<template <typename> class M , typename A>
+//inline typename std::enable_if<std::is_same<M<A>, QSet<A>>::value, QSet<A>>::type // required for return type dispatching
+//pure(A x)
+//{
+//	return QSet<A>(x);
+//}
 
-template<typename A, typename B>
-QSet<B> operator >>= (QSet<A> s, std::function<QSet<B>(A)> f)
+//template<typename A, typename B>
+//QSet<B> operator >>= (QSet<A> s, std::function<QSet<B>(A)> f)
+//{
+//	QSet<B> ret;
+//	foreach (const QSet<B>& ss, fmap(f, s)) {
+//		ret.unite(ss);
+//	}
+//	return ret;
+//}
+
+
+template<typename B>
+struct Monad<QSet, B>
 {
-	QSet<B> ret;
-	foreach (const QSet<B>& ss, fmap(f, s)) {
-		ret.unite(ss);
+	static QSet<B> pure(B x)
+	{
+		return QSet<B>(x);
 	}
-	return ret;
-}
+
+	template<typename A>
+	static QSet<B> bind(QSet<A> s, std::function<QSet<B>(A)> f)
+	{
+		QSet<B> ret;
+		foreach (const QSet<B>& ss, fmap(f, s)) {
+			ret.unite(ss);
+		}
+		return ret;
+	}
+};
+
 
 //
 // Monad instance for QList:
