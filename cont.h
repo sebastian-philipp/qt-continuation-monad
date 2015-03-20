@@ -13,9 +13,29 @@
 // fold aka accumulate
 #include <numeric>
 
-#include <boost/optional.hpp>
+template<template <typename> class F, typename B>
+struct Functor {
+	typedef B ValueT;
+//	typedef M MonadT;
 
-#include <QVariant>
+	template<typename A>
+	static F<B> fmap(std::function<B(A)> f, F<A> s);
+};
+
+template<template <typename> class F, typename A, typename B>
+F<B> fmap(std::function<B(A)> f, F<A> s)
+{
+	return Functor<F,B>::fmap(f, s);
+}
+
+// TODO check compiler!!
+template<template <typename> class M, typename A, typename F>
+auto fmap (M<A> s, F f) -> M<decltype(f(A()))>
+{
+	return fmap(std::function<decltype(f(A()))(A)>(f), s);
+}
+
+
 
 template<template <typename> class M, typename B>
 struct Monad {
@@ -40,7 +60,7 @@ M<B> operator >>= (M<A> s, std::function<M<B>(A)> f)
 	return Monad<M,B>::bind(s, f);
 }
 
-
+// TODO check compiler!!
 template<template <typename> class M, typename A, typename F>
 auto operator >>= (M<A> s, F f) -> decltype(f(A()))
 {
@@ -55,6 +75,7 @@ auto operator >>= (M<A> s, F f) -> decltype(f(A()))
 // Continuation monad:
 //
 
+#include <QVariant>
 
 // data Cont r a = Cont { runCont :: (a -> r) -> r }
 template<typename A>
@@ -176,6 +197,7 @@ inline uint qHash(const Cont<T> &c, uint seed)
 // Monad instance for boost::optional:
 //
 
+#include <boost/optional.hpp>
 
 //// pure :: a -> Maybe a
 //template<template <typename> class M , typename A>
@@ -245,15 +267,29 @@ inline uint qHash(const QSet<T> &s, uint seed)
 }
 
 // functor instance
-template<template <typename> class F, class A, class B>
-inline typename std::enable_if<std::is_same<F<A>, QSet<A>>::value, QSet<B>>::type
-fmap(std::function<B(A)> f, F<A> as) {
-	F<B> bs;
-	foreach(const A& a, as) {
-		bs.insert(f(a));
+template<typename B>
+struct Functor<QSet, B>
+{
+	template<typename A>
+	static QSet<B> fmap(std::function<B(A)> f, QSet<A> as)
+	{
+		QSet<B> bs;
+		foreach(const A& a, as) {
+			bs.insert(f(a));
+		}
+		return bs;
 	}
-	return bs;
-}
+};
+
+//template<template <typename> class F, class A, class B>
+//inline typename std::enable_if<std::is_same<F<A>, QSet<A>>::value, QSet<B>>::type
+//fmap(std::function<B(A)> f, F<A> as) {
+//	F<B> bs;
+//	foreach(const A& a, as) {
+//		bs.insert(f(a));
+//	}
+//	return bs;
+//}
 
 //// pure :: a -> Maybe a
 //template<template <typename> class M , typename A>
@@ -301,13 +337,26 @@ struct Monad<QSet, B>
 #include <QList>
 
 // functor instance
-template<template <typename> class F, class A, class B>
-inline typename std::enable_if<std::is_same<F<A>, QList<A>>::value, QList<B>>::type
-fmap(std::function<B(A)> f, F<A> as) {
-	F<B> bs;
-	std::transform(std::begin(as), std::end(as), std::back_inserter(bs), f);
-	return bs;
-}
+template<typename B>
+struct Functor<QList, B>
+{
+	template<typename A>
+	static QList<B> fmap(std::function<B(A)> f, QList<A> as)
+	{
+		QList<B> bs;
+		std::transform(std::begin(as), std::end(as), std::back_inserter(bs), f);
+		return bs;
+	}
+};
+
+
+//template<template <typename> class F, class A, class B>
+//inline typename std::enable_if<std::is_same<F<A>, QList<A>>::value, QList<B>>::type
+//fmap(std::function<B(A)> f, F<A> as) {
+//	F<B> bs;
+//	std::transform(std::begin(as), std::end(as), std::back_inserter(bs), f);
+//	return bs;
+//}
 
 
 
