@@ -13,10 +13,11 @@
 // fold aka accumulate
 #include <numeric>
 
+// Functor class
+
 template<template <typename> class F, typename B>
 struct Functor {
 	typedef B ValueT;
-//	typedef M MonadT;
 
 	template<typename A>
 	static F<B> fmap(std::function<B(A)> f, F<A> s);
@@ -28,19 +29,18 @@ F<B> fmap(std::function<B(A)> f, F<A> s)
 	return Functor<F,B>::fmap(f, s);
 }
 
-// TODO check compiler!!
+// TODO check compiler support!!
 template<template <typename> class M, typename A, typename F>
 auto fmap (M<A> s, F f) -> M<decltype(f(A()))>
 {
 	return fmap(std::function<decltype(f(A()))(A)>(f), s);
 }
 
-
+// Monad class
 
 template<template <typename> class M, typename B>
 struct Monad {
 	typedef B ValueT;
-//	typedef M MonadT;
 
 	static M<B> pure(B);
 
@@ -60,7 +60,7 @@ M<B> operator >>= (M<A> s, std::function<M<B>(A)> f)
 	return Monad<M,B>::bind(s, f);
 }
 
-// TODO check compiler!!
+// TODO check compiler support!!
 template<template <typename> class M, typename A, typename F>
 auto operator >>= (M<A> s, F f) -> decltype(f(A()))
 {
@@ -69,7 +69,68 @@ auto operator >>= (M<A> s, F f) -> decltype(f(A()))
 
 
 
+//join   :: (Monad m) => m (m a) -> m a
+//join x =  x >>= id
+template <template <typename> class M, typename A>
+M<A> join(const M<M<A>> x)
+{
+	return x >>= std::function<M<A>(M<A>)>([](M<A> y) -> M<A>{
+		return y;
+	});
+}
 
+// (>>) :: forall a b. m a -> m b -> m b
+// m >> k = m >>= \_ -> k
+// If you get this error here:
+template<template <typename> class M, typename A, typename B>
+M<B> operator >> (M<A> m, std::function<M<B>()> k)
+{
+	return (m >>= std::function<M<B>(A)>([k](A) -> M<B> {
+		return k();
+	}));
+}
+
+// TODO check compiler support!!
+template<template <typename> class M, typename A, typename F>
+auto operator >> (M<A> m, F f) -> decltype(f())
+{
+	return m >> std::function<decltype(f())()>(f);
+}
+
+// sequence :: (Monad m, Traversable t) => t (m a) -> m (t a)
+template<template <typename> class M, template <typename> class T, typename A>
+M<T<A>> sequence(T<M<A>> x)
+{
+//	sequence ms = foldr k (return []) ms
+//	            where
+//	              k m mm = do { x <- m; xs <- mm; return (x:xs) }
+	return std::accumulate(std::begin(x), std::end(x), pure<M, T<A>>(T<A>()),
+		[](const M<T<A>>& mm, M<A> m) -> M<T<A>>{
+			return ( m >>= std::function<M<T<A>>(A)>   ([mm](A x)     -> M<T<A>> {
+			return (mm >>= std::function<M<T<A>>(T<A>)>([x ](T<A> xs) -> M<T<A>> {
+				xs += x;
+			return pure<M,T<A>>(xs);
+			}));}));});
+}
+
+// Promote a function to a monad.
+// liftM   :: (Monad m) => (a1 -> r) -> m a1 -> m r
+template<template <typename> class M, typename A, typename R>
+M<R> liftM(std::function<R(A)> f, M<A> m1)
+{
+	// liftM f m1              = do { x1 <- m1; return (f x1) }
+	return m1 >>= std::function<M<R>(A)>([f](A x1) -> M<R>{
+	return pure<M,R>(f(x1));
+	});
+}
+
+// mapM :: (Monad m, Traversable t) => (a -> m b) -> t a -> m t b
+template<template <typename> class M, template <typename> class T, typename A, typename B>
+M<T<B>> mapM(std::function<M<B>(A)> f, T<A> as)
+{
+	// mapM f as       =  sequence (map f as)
+	return sequence<M,T,B>(fmap<T,A,M<B>>(f, as));
+}
 
 //
 // Continuation monad:
@@ -131,32 +192,12 @@ QVariant Cont<A>::evalCont() const
 	});
 }
 
-////instance Monad (Cont r) where
-////    return x = cont ($ x)
-////    s >>= f  = cont $ \c -> runCont s $ \x -> runCont (f x) c
-//template<template <typename> class M , typename A>
-//inline typename std::enable_if<std::is_same<M<A>, Cont<A>>::value, Cont<A>>::type // required for return type dispatching
-//pure(A x)
-//{
-//	return Cont<A>([x](typename Cont<A>::Inner f) -> QVariant {
-//		return f(x);
-//	});
-//}
-
-//// (>>=) :: Cont a -> (a -> Cont b) -> Cont b
-//template<typename A, typename B>
-//Cont<B> operator >>= (Cont<A> s, std::function<Cont<B>(A)> f)
-//{
-//	return Cont<B>([f, s](std::function<QVariant(B)> c) -> QVariant {
-//		return s.runCont1([f, c](A x) -> QVariant {
-//			return f(x).runCont1(c);
-//		});
-//	});
-//}
-
+//instance Monad (Cont r) where
 template<typename B>
 struct Monad<Cont, B>
 {
+	//    return x = cont ($ x)
+	//    s >>= f  = cont $ \c -> runCont s $ \x -> runCont (f x) c
 	static Cont<B> pure(B x)
 	{
 		return Cont<B>([x](typename Cont<B>::Inner f) -> QVariant {
@@ -164,6 +205,7 @@ struct Monad<Cont, B>
 		});
 	}
 
+	// (>>=) :: Cont a -> (a -> Cont b) -> Cont b
 	template<typename A>
 	static Cont<B> bind(Cont<A> s, std::function<Cont<B>(A)> f)
 	{
@@ -199,28 +241,10 @@ inline uint qHash(const Cont<T> &c, uint seed)
 
 #include <boost/optional.hpp>
 
-//// pure :: a -> Maybe a
-//template<template <typename> class M , typename A>
-//inline typename std::enable_if<std::is_same<M<A>, boost::optional<A>>::value, boost::optional<A>>::type // required for return type dispatching
-//pure(A x)
-//{
-//	return boost::optional<A>(x);
-//}
-
-//template<typename A, typename B>
-//boost::optional<B> operator >>= (boost::optional<A> s, std::function<boost::optional<B>(A)> f)
-//{
-//	if (s) {
-//		return f(s.get());
-//	} else {
-//		return boost::optional<B>();
-//	}
-//}
-
-
 template<typename B>
 struct Monad<boost::optional, B>
 {
+	// pure :: a -> Maybe a
 	static boost::optional<B> pure(B x)
 	{
 		return boost::optional<B>(x);
@@ -281,38 +305,10 @@ struct Functor<QSet, B>
 	}
 };
 
-//template<template <typename> class F, class A, class B>
-//inline typename std::enable_if<std::is_same<F<A>, QSet<A>>::value, QSet<B>>::type
-//fmap(std::function<B(A)> f, F<A> as) {
-//	F<B> bs;
-//	foreach(const A& a, as) {
-//		bs.insert(f(a));
-//	}
-//	return bs;
-//}
-
-//// pure :: a -> Maybe a
-//template<template <typename> class M , typename A>
-//inline typename std::enable_if<std::is_same<M<A>, QSet<A>>::value, QSet<A>>::type // required for return type dispatching
-//pure(A x)
-//{
-//	return QSet<A>(x);
-//}
-
-//template<typename A, typename B>
-//QSet<B> operator >>= (QSet<A> s, std::function<QSet<B>(A)> f)
-//{
-//	QSet<B> ret;
-//	foreach (const QSet<B>& ss, fmap(f, s)) {
-//		ret.unite(ss);
-//	}
-//	return ret;
-//}
-
-
 template<typename B>
 struct Monad<QSet, B>
 {
+	// pure :: a -> QSet a
 	static QSet<B> pure(B x)
 	{
 		return QSet<B>(x);
@@ -349,77 +345,29 @@ struct Functor<QList, B>
 	}
 };
 
+template<typename B>
+struct Monad<QList, B>
+{
+	// pure :: a -> [a]
+	static QList<B> pure(B x)
+	{
+		return QList<B>(x);
+	}
 
-//template<template <typename> class F, class A, class B>
-//inline typename std::enable_if<std::is_same<F<A>, QList<A>>::value, QList<B>>::type
-//fmap(std::function<B(A)> f, F<A> as) {
-//	F<B> bs;
-//	std::transform(std::begin(as), std::end(as), std::back_inserter(bs), f);
-//	return bs;
-//}
-
+	template<typename A>
+	static QList<B> bind(QList<A> s, std::function<QList<B>(A)> f)
+	{
+		QList<B> ret;
+		foreach (const QList<B>& ss, fmap(f, s)) {
+			ret.append(ss);
+		}
+		return ret;
+	}
+};
 
 
 // ---------------------------------
 
-
-//join              :: (Monad m) => m (m a) -> m a
-//join x            =  x >>= id
-
-template <template <typename> class M, typename A>
-M<A> join(const M<M<A>> x)
-{
-	return x >>= std::function<M<A>(M<A>)>([](M<A> y) -> M<A>{
-		return y;
-	});
-}
-
-// (>>) :: forall a b. m a -> m b -> m b
-// m >> k = m >>= \_ -> k
-// If you get this error here:
-template<template <typename> class M, typename A, typename B>
-M<B> operator >> (M<A> m, std::function<M<B>()> k)
-{
-	return (m >>= std::function<M<B>(A)>([k](A) -> M<B> {
-		return k();
-	}));
-}
-
-
-// sequence :: (Monad m, Traversable t) => t (m a) -> m (t a)
-template<template <typename> class M, template <typename> class T, typename A>
-M<T<A>> sequence(T<M<A>> x)
-{
-//	sequence ms = foldr k (return []) ms
-//	            where
-//	              k m mm = do { x <- m; xs <- mm; return (x:xs) }
-	return std::accumulate(std::begin(x), std::end(x), pure<M, T<A>>(T<A>()),
-		[](const M<T<A>>& mm, M<A> m) -> M<T<A>>{
-			return ( m >>= std::function<M<T<A>>(A)>   ([mm](A x)     -> M<T<A>> {
-			return (mm >>= std::function<M<T<A>>(T<A>)>([x ](T<A> xs) -> M<T<A>> {
-				xs += x;
-			return pure<M,T<A>>(xs);
-			}));}));});
-}
-
-// Promote a function to a monad.
-// liftM   :: (Monad m) => (a1 -> r) -> m a1 -> m r
-template<template <typename> class M, typename A, typename R>
-M<R> liftM(std::function<R(A)> f, M<A> m1)
-{
-	// liftM f m1              = do { x1 <- m1; return (f x1) }
-	return m1 >>= std::function<M<R>(A)>([f](A x1) -> M<R>{
-	return pure<M,R>(f(x1));
-	});
-}
-
-// mapM :: Monad m => (a -> m b) -> [a] -> m [b]
-template<template <typename> class M, template <typename> class T, typename A, typename B>
-M<T<B>> mapM(std::function<M<B>(A)> f, T<A> as)
-{
-	// mapM f as       =  sequence (map f as)
-	return sequence<M,T,B>(fmap<T,A,M<B>>(f, as));
-}
 
 
 
