@@ -228,7 +228,7 @@ Cont<A> abortContWith(QVariant r)
 #include <QHash>
 
 template<typename T>
-inline uint qHash(const Cont<T> &c, uint seed)
+inline uint qHash(const Cont<T> &c, uint seed = 0)
 //	Q_DECL_NOEXCEPT_EXPR(noexcept(qHash(c)))
 {
 	return qHash((quintptr)seed ^ reinterpret_cast<quintptr>(&c));
@@ -280,15 +280,7 @@ inline QDebug operator<<(QDebug debug, const boost::optional<T> &m)
 #include <QSet>
 
 template<typename T>
-inline uint qHash(const QSet<T> &s, uint seed)
-//	Q_DECL_NOEXCEPT_EXPR(noexcept(qHash(s)))
-{
-	uint hash = seed;
-	foreach(const T& t, s){
-		return (hash = hash ^ qHash(t));
-	}
-	return hash;
-}
+inline uint qHash(const QSet<T> &s, uint seed);
 
 // functor instance
 template<typename B>
@@ -311,7 +303,7 @@ struct Monad<QSet, B>
 	// pure :: a -> QSet a
 	static QSet<B> pure(B x)
 	{
-		return QSet<B>(x);
+		return QSet<B>() << x;
 	}
 
 	template<typename A>
@@ -332,6 +324,18 @@ struct Monad<QSet, B>
 
 #include <QList>
 
+template<typename T>
+inline uint qHash(const QList<T> &s, uint seed)
+//	Q_DECL_NOEXCEPT_EXPR(noexcept(qHash(s)))
+{
+	uint hash = seed;
+	foreach(const T& t, s){
+		return (hash = hash ^ qHash(t, seed));
+	}
+	return hash;
+}
+
+
 // functor instance
 template<typename B>
 struct Functor<QList, B>
@@ -351,7 +355,7 @@ struct Monad<QList, B>
 	// pure :: a -> [a]
 	static QList<B> pure(B x)
 	{
-		return QList<B>(x);
+		return QList<B>() << x;
 	}
 
 	template<typename A>
@@ -369,7 +373,16 @@ struct Monad<QList, B>
 // ---------------------------------
 
 
-
+template<typename T>
+inline uint qHash(const QSet<T> &s, uint seed)
+//	Q_DECL_NOEXCEPT_EXPR(noexcept(qHash(s)))
+{
+	uint hash = seed;
+	foreach(const T& t, s){
+		return (hash = hash ^ qHash(t, seed));
+	}
+	return hash;
+}
 
 
 #endif // CONT_H
