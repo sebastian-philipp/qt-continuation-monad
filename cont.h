@@ -13,6 +13,26 @@
 // fold aka accumulate
 #include <numeric>
 
+
+// decltype call expression
+
+#if __GNUC__ > 4 || \
+	(__GNUC__ == 4 && (__GNUC_MINOR__ > 8 || \
+		(__GNUC_MINOR__ == 8 && __GNUC_PATCHLEVEL__ > 1)))
+#define HAS_DECLTYPE_CALLEXPR
+#endif
+
+
+#if __clang_major__ > 3 || \
+	(__clang_major__ == 3 && (__clang_minor__ >= 4))
+#define HAS_DECLTYPE_CALLEXPR
+#endif
+
+#if _MSC_VER >= 1600
+#define HAS_DECLTYPE_CALLEXPR
+#endif
+
+
 // Functor class
 
 template<template <typename> class F, typename B>
@@ -29,12 +49,13 @@ F<B> fmap(std::function<B(A)> f, F<A> s)
 	return Functor<F,B>::fmap(f, s);
 }
 
-// TODO check compiler support!!
+#ifdef HAS_DECLTYPE_CALLEXPR
 template<template <typename> class M, typename A, typename F>
 auto fmap (M<A> s, F f) -> M<decltype(f(A()))>
 {
 	return fmap(std::function<decltype(f(A()))(A)>(f), s);
 }
+#endif
 
 // Monad class
 
@@ -60,13 +81,13 @@ M<B> operator >>= (M<A> s, std::function<M<B>(A)> f)
 	return Monad<M,B>::bind(s, f);
 }
 
-// TODO check compiler support!!
+#ifdef HAS_DECLTYPE_CALLEXPR
 template<template <typename> class M, typename A, typename F>
 auto operator >>= (M<A> s, F f) -> decltype(f(A()))
 {
 	return s >>= std::function<decltype(f(A()))(A)>(f);
 }
-
+#endif
 
 
 //join   :: (Monad m) => m (m a) -> m a
@@ -90,12 +111,13 @@ M<B> operator >> (M<A> m, std::function<M<B>()> k)
 	}));
 }
 
-// TODO check compiler support!!
+#ifdef HAS_DECLTYPE_CALLEXPR
 template<template <typename> class M, typename A, typename F>
 auto operator >> (M<A> m, F f) -> decltype(f())
 {
 	return m >> std::function<decltype(f())()>(f);
 }
+#endif
 
 // sequence :: (Monad m, Traversable t) => t (m a) -> m (t a)
 template<template <typename> class M, template <typename> class T, typename A>
