@@ -12,6 +12,11 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QTimer>
+#include <QSet>
+#include <QHash>
+#include <QList>
+
+
 
 #include <htmlcxx/html/ParserSax.h>
 
@@ -40,41 +45,47 @@ int main(int argc, char *argv[])
 	// Continuation monad
 	nam = new QNetworkAccessManager();
 
-	IntCont myCont = pure<Cont, int>(1) >>= std::function<IntCont(int)>([](int i) -> IntCont {
-		return pure<Cont, int>(i + 1);
-	});
+	IntCont myCont = pure<Cont>(1) >>= [](int i) {
+		return pure<Cont>(i + 1);
+	};
 	qDebug() << ">>=" << myCont.evalCont();
 
-	qDebug() << "join" << join<Cont, int>(pure<Cont, Cont<int>>(pure<Cont, int>(1))).evalCont();
+	qDebug() << "join" << join<Cont>(pure<Cont>(pure<Cont>(1))).evalCont();
 
-	IntCont myCont2 = ((IntCont)pure<Cont, int>(1)) >> std::function<IntCont()>([]() -> IntCont {
-		return pure<Cont, int>(42);
-	});
+	IntCont myCont2 = (pure<Cont>(1)) >> []() -> IntCont {
+		return pure<Cont>(42);
+	};
 	qDebug() << ">>" << myCont2.evalCont();
 
 	(
-		grabLinks(QUrl("http://www.teamdrive.com/"), 2) >>= std::function<VoidCont(QSet<QUrl>)>([&a](QSet<QUrl> urls) -> VoidCont {
+		grabLinks(QUrl("http://www.teamdrive.com/"), 2) >>= [&a](QSet<QUrl> urls) -> VoidCont {
 		qDebug() << "urls.len():" << urls;
 		a.exit();
-		return pure<Cont, Unit>(Unit());
-	})).evalCont();
+		return pure<Cont>(Unit());
+	}).evalCont();
 
 
 	// Maybe Monad
-	qDebug() << pure<boost::optional, int>(42);
-	qDebug() << (pure<boost::optional, int>(42) >>= std::function<boost::optional<int>(int)>([](int i) -> boost::optional<int> {return boost::optional<int>(i);}));
-	qDebug() << (pure<boost::optional, int>(42) >> std::function<boost::optional<int>()>([]() -> boost::optional<int> {return boost::optional<int>();}));
-	qDebug() << join<boost::optional, int>(pure<boost::optional, boost::optional<int>>(pure<boost::optional, int>(42))).get();
+	qDebug() << pure<boost::optional>(42);
+	qDebug() << pure<boost::optional>(42);
+
+	qDebug() << (pure<boost::optional>(42) >>= [](int i) -> boost::optional<int> {return boost::optional<int>(i);});
+	qDebug() << (pure<boost::optional>(42) >> []() -> boost::optional<int> {return boost::optional<int>();});
+	qDebug() << join<boost::optional>(pure<boost::optional>(pure<boost::optional>(42))).get();
 
 	// sequence
-	qDebug() << sequence<boost::optional, QList, int>(QList<boost::optional<int>>{ boost::optional<int>(3), boost::optional<int>(4) , boost::optional<int>(5) });
-	qDebug() << sequence<boost::optional, QList, int>(QList<boost::optional<int>>{ boost::optional<int>(3), boost::optional<int>() , boost::optional<int>(5) });
+	qDebug() << sequence<boost::optional, QList>(QList<boost::optional<int>>{ boost::optional<int>(3), boost::optional<int>(4) , boost::optional<int>(5) });
+	qDebug() << sequence<boost::optional, QList>(QList<boost::optional<int>>{ boost::optional<int>(3), boost::optional<int>() , boost::optional<int>(5) });
 	// qDebug() << sequence<boost::optional, std::vector, int>(std::vector<boost::optional<int>> { boost::optional<int>(3), boost::optional<int>(4) , boost::optional<int>(5) }); ?
 
 	// mapM
 	qDebug() << mapM<boost::optional, QList, int, QString>([](int i){
 		return boost::optional<QString>(QString::number(i * 10, 16));
 	},QList<int>{1,2,3,4,5,6,7,8,9});
+	qDebug() << mapM<QList, QList, int, int>([](int i){
+		return QList<int>() << i << i + 1;
+	},QList<int>{0,0,0,0,0,0,0});
+
 	// return 0;
 	return a.exec();
 }
@@ -83,15 +94,15 @@ int main(int argc, char *argv[])
 UrlContinuation grabLinks(const QUrl& url, int depth)
 {
 	if (depth <= 0)
-		return pure<Cont, QSet<QUrl>>(QSet<QUrl>() << url);
-	return waitForReplyFinished(nam->get(QNetworkRequest(url))) >>= std::function<UrlContinuation(QNetworkReply*)>([url, depth](QNetworkReply* rep) -> UrlContinuation {
+		return pure<Cont>(QSet<QUrl>() << url);
+	return waitForReplyFinished(nam->get(QNetworkRequest(url))) >>= [url, depth](QNetworkReply* rep) -> UrlContinuation {
 		QSet<QUrl> urls = scrapUrls(url, rep);
-	return mapM<Cont, QSet, QUrl, QSet<QUrl>>(std::function<UrlContinuation(QUrl)>([depth](QUrl u){
+	return mapM<Cont, QSet, QUrl, QSet<QUrl>>([depth](QUrl u){
 //				qDebug() << "grabLinks(u, depth-1)" << u;
 				return grabLinks(u, depth-1);
-			}), urls) >>= std::function<UrlContinuation(QSet<QSet<QUrl>>)>([](QSet<QSet<QUrl>> uurls){
-	return pure<Cont, QSet<QUrl>>(join<QSet,QUrl>(uurls));
-	});});
+			}, urls) >>=[](QSet<QSet<QUrl>> uurls){
+	return pure<Cont>(join<QSet>(uurls));
+	};};
 }
 
 
