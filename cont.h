@@ -406,5 +406,39 @@ inline uint qHash(const QSet<T> &s, uint seed)
 	return hash;
 }
 
+// ---------------------------
+
+struct Unit {};
+Q_DECLARE_METATYPE(Unit)
+
+typedef Cont<int> IntCont;
+typedef Cont<Unit> VoidCont;
+
+
+template<typename Q, typename S>
+VoidCont waitForQObjectSignal0(Q* obj, S signal)
+{
+	return Cont<R>([obj, signal](VoidCont::Inner inner){
+			QObject* guard = new QObject();
+			QObject::connect(obj, signal, guard, [inner]() -> void {
+				delete guard;
+				inner(Unit());
+			});
+	});
+}
+
+template<typename Q, typename S, typename R>
+Cont<R> waitForQObjectSignal1(Q* obj, S signal)
+{
+	return Cont<R>([obj, signal](Cont<R>::Inner inner){
+			QObject* guard = new QObject();
+			QObject::connect(obj, signal, guard, [inner](R r) -> void {
+				delete guard;
+				inner(r);
+			});
+	});
+}
+
+
 
 #endif // CONT_H

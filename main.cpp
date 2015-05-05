@@ -23,12 +23,6 @@
 
 #include "cont.h"
 
-struct Unit {};
-Q_DECLARE_METATYPE(Unit)
-
-typedef Cont<int> IntCont;
-typedef Cont<Unit> VoidCont;
-
 typedef Cont<QSet<QUrl>> UrlContinuation;
 typedef Cont<QNetworkReply*> ReplyContinuatoin;
 
@@ -154,6 +148,7 @@ ReplyContinuatoin waitForReplyFinished(QNetworkReply *rep)
 		}
 	);
 }
+
 
 
 
