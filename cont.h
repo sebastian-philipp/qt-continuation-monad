@@ -13,6 +13,8 @@
 // fold aka accumulate
 #include <numeric>
 
+#include <QtGlobal>
+
 
 // decltype call expression
 
@@ -32,6 +34,8 @@
 #define HAS_DECLTYPE_CALLEXPR
 #endif
 
+// the empty struct. reason, void can be complicated as template parameter.
+struct Unit {};
 
 // Functor class
 
@@ -157,23 +161,25 @@ M<T<B>> mapM(std::function<M<B>(A)> f, T<A> as)
 //
 // Continuation monad:
 //
-
-#include <QVariant>
+// Current limitation: you can return somehing from the monad. Currently, r equals void.
 
 // data Cont r a = Cont { runCont :: (a -> r) -> r }
 template<typename A>
 struct Cont {
-	typedef std::function<QVariant(A)> Inner;
-	typedef std::function<QVariant(Inner)> Type;
+	typedef std::function<void(A)> Inner;
+	typedef std::function<void(Inner)> Type;
 	Type m_Cont;
 	Cont(const Type& func);
 
 	Cont(); // dont use. Requires default constructor for A
 	bool operator == (const Cont<A>& rhs) const {return this == &rhs;}
 
-	Type runCont() const;
-	QVariant runCont1(Inner f) const;
-	QVariant evalCont() const;
+	inline Q_CONSTEXPR Type runCont() const;
+
+	template <typename F>
+	inline void runCont1(F f) const;
+
+	void evalCont() const;
 };
 
 //cont :: ((a -> r) -> r) -> Cont r a
@@ -186,31 +192,35 @@ Cont<A>::Cont(const typename Cont<A>::Type &func):
 // :: Cont r a
 template<typename A>
 Cont<A>::Cont():
-	m_Cont(pure(A()).m_Cont)
+	m_Cont([](typename Cont<A>::Inner f) -> void { f(A()); })
 {
 }
 
-
 //runCont :: Cont r a -> (a -> r) -> r
 template<typename A>
-typename Cont<A>::Type Cont<A>::runCont() const
+inline Q_CONSTEXPR typename Cont<A>::Type Cont<A>::runCont() const
 {
 	return m_Cont;
 }
 
 //runCont1 = uncurry runCont
+//runCont1 :: (Cont r a, (a -> r)) -> r
 template<typename A>
-QVariant Cont<A>::runCont1(typename Cont<A>::Inner f) const
+template<typename F>
+inline void Cont<A>::runCont1(F f) const
 {
-	return runCont()(f);
+	runCont()(f);
 }
 
-// evalCont :: Cont r a -> r
+/*!
+  evalCont :: Cont r a -> r
+
+  the return value is typically empty.
+*/
 template<typename A>
-QVariant Cont<A>::evalCont() const
+void Cont<A>::evalCont() const
 {
-	return runCont1([](A a) -> QVariant {
-		return QVariant::fromValue<A>(a);
+	runCont1([](A) -> void {
 	});
 }
 
@@ -220,32 +230,78 @@ struct Monad<Cont, B>
 {
 	//    return x = cont ($ x)
 	//    s >>= f  = cont $ \c -> runCont s $ \x -> runCont (f x) c
-	static Cont<B> pure(B x)
+	static inline Q_CONSTEXPR Cont<B> pure(B x)
 	{
-		return Cont<B>([x](typename Cont<B>::Inner f) -> QVariant {
-			return f(x);
+		return Cont<B>([x](typename Cont<B>::Inner f) -> void  {
+			f(x);
 		});
 	}
 
 	// (>>=) :: Cont a -> (a -> Cont b) -> Cont b
 	template<typename A>
-	static Cont<B> bind(Cont<A> s, std::function<Cont<B>(A)> f)
+	static inline Q_CONSTEXPR Cont<B> bind(Cont<A> s, std::function<Cont<B>(A)> f)
 	{
-		return Cont<B>([f, s](std::function<QVariant(B)> c) -> QVariant {
-			return s.runCont1([f, c](A x) -> QVariant {
-				return f(x).runCont1(c);
+		return Cont<B>([f, s](std::function<void(B)> c) -> void {
+			s.runCont1([f, c](A x) -> void {
+				f(x).runCont1(c);
 			});
 		});
 	}
 };
 
 template<typename A>
-Cont<A> abortContWith(QVariant r)
+Cont<A> abortContWith()
 {
-	return Cont<A>(std::function<QVariant(typename Cont<A>::Inner)>([r](typename Cont<A>::Inner){
-		return r;
+	return Cont<A>(std::function<void(typename Cont<A>::Inner)>([](typename Cont<A>::Inner){
 	}));
 }
+
+// callCC :: ((a -> Cont r b) -> Cont r a) -> Cont r a
+// callCC f = cont $ \h -> runCont (f (\a -> cont $ \_ -> h a)) h
+
+template<typename A, typename B, typename F>
+Cont<A> callCC(F /*std::function<Cont<A>(std::function<Cont<B>(A)>)>*/ f)
+{
+	return Cont<A>(
+		// \h -> runCont (f (\a -> cont $ \_ -> h a)) h
+		[f](typename Cont<A>::Inner h) -> void {
+			// (f (\a -> cont $ \_ -> h a))
+			f(std::function<Cont<B>(A)>([h](A a) -> Cont<B> {
+				return Cont<B>([h, a](typename Cont<B>::Inner) -> void {
+					h(a);
+				});
+			})).runCont1(h);
+		}
+	);
+}
+
+//tryCont :: MonadCont m => ((err -> m a) -> m a) -> (err -> m a) -> m a
+//tryCont c h = callCC $ \ok -> do
+//    err <- callCC $ \notOk -> do
+//        x <- c notOk
+//        ok x
+//    h err
+
+template<typename A, typename ERR>
+Cont<A> tryCont_(/*C*/ std::function<Cont<A>(std::function<Cont<A>(ERR)>)> c, std::function<Cont<A>(ERR)> h)
+{
+	return callCC<int, ERR>([c, h](std::function<Cont<ERR>(A)> ok) -> Cont<A> {
+		return callCC<ERR, int>([ok, c](std::function<Cont<A>(ERR)> notOk) -> Cont<ERR> {
+			return c(notOk) >>= [ok](A x) -> Cont<ERR> {
+				return ok(x);
+			};
+		}) >>= [h](ERR error) -> Cont<A> {
+		return h(error);
+		};
+	});
+}
+
+template<typename A, typename ERR, typename C, typename H>
+Cont<A> tryCont(C c, H h)
+{
+	return tryCont_<A, ERR>(std::function<Cont<A>(std::function<Cont<A>(ERR)>)>(c), std::function<Cont<A>(ERR)>(h));
+}
+
 
 #include <QHash>
 
@@ -255,7 +311,6 @@ inline uint qHash(const Cont<T> &c, uint seed = 0)
 {
 	return qHash((quintptr)seed ^ reinterpret_cast<quintptr>(&c));
 }
-
 
 //
 // Monad instance for boost::optional:
@@ -408,7 +463,6 @@ inline uint qHash(const QSet<T> &s, uint seed)
 
 // ---------------------------
 
-struct Unit {};
 Q_DECLARE_METATYPE(Unit)
 
 typedef Cont<int> IntCont;
@@ -418,27 +472,62 @@ typedef Cont<Unit> VoidCont;
 template<typename Q, typename S>
 VoidCont waitForQObjectSignal0(Q* obj, S signal)
 {
-	return Cont<R>([obj, signal](VoidCont::Inner inner){
-			QObject* guard = new QObject();
-			QObject::connect(obj, signal, guard, [inner]() -> void {
-				delete guard;
-				inner(Unit());
-			});
+	return VoidCont([obj, signal](VoidCont::Inner inner){
+		QObject* guard = new QObject();
+		QObject::connect(obj, signal, guard, [guard, inner]() -> void {
+			delete guard;
+			inner(Unit());
+		});
 	});
 }
 
-template<typename Q, typename S, typename R>
-Cont<R> waitForQObjectSignal1(Q* obj, S signal)
+template<typename R, typename Q, typename S>
+Cont<R> waitForQObjectSignal1(Q* obj, S signal, QObject* parent = 0)
 {
-	return Cont<R>([obj, signal](Cont<R>::Inner inner){
-			QObject* guard = new QObject();
-			QObject::connect(obj, signal, guard, [inner](R r) -> void {
-				delete guard;
-				inner(r);
-			});
+	return Cont<R>([obj, signal, parent](typename Cont<R>::Inner inner) -> void {
+		QObject* guard = new QObject(parent);
+		QObject::connect(obj, signal, guard, [guard, inner](R r) -> void {
+			delete guard;
+			inner(r);
+		});
+	});
+}
+
+template<typename R, typename Q, typename S, typename C>
+Cont<R> waitForQObjectSignal1c(Q* obj, S signal, C execAfter, QObject* parent = 0)
+{
+	std::function<void(void)> execAfter_(execAfter);
+	return Cont<R>([obj, signal, parent, execAfter_](typename Cont<R>::Inner inner) -> void {
+		QObject* guard = new QObject(parent);
+		QObject::connect(obj, signal, guard, [guard, inner](R r) -> void {
+			delete guard;
+			inner(r);
+		});
+		execAfter_();
 	});
 }
 
 
+#include <QEventLoop>
+
+template<typename R>
+R evalWithEventLoop(Cont<R> cont)
+{
+	QEventLoop loop;
+	bool isSet = false;
+	R result;
+	(
+		cont >>= [&result, &loop, &isSet](R r) -> Cont<Unit>{
+			result = r;
+			isSet = true;
+			loop.exit();
+			return pure<Cont>(Unit());
+		}
+	).evalCont();
+	if (!isSet) {
+		loop.exec();
+	}
+	return result;
+}
 
 #endif // CONT_H
