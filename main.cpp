@@ -58,8 +58,8 @@ int main(int argc, char *argv[])
 //	testMapM();
 
 	//testLoop();
-//	testException();
-	testCallCC();
+//	testCallCC();
+	testException();
 	return 0;
 //	return a.exec();
 }
@@ -245,37 +245,37 @@ void testCallCC()
 
 }
 
-#if 0
 void testException()
 {
-	Cont<Unit>::raise(new ContException()
-	).tryCont(
-		[](ContException*){
+	Async<Unit>::raise(new AsyncException()
+	).tryAsync(
+		[](AsyncException*) -> Cont<Unit>{
 			qDebug("ok 1");
 			return pure<Cont>(Unit());
 		}
 	).evalCont();
 
 	(
-		pure<Cont>(Unit()) >> [](){
-		return Cont<Unit>::raise(new ContException()) >> [](){
-		return pure<Cont>(Unit()) >> [](){
+		pure<Async>(Unit()) >> [](){
+		return Async<Unit>::raise(new AsyncException()) >> [](){
+		return pure<Async>(Unit()) >> [](){
 			qDebug("error");
-		return pure<Cont>(Unit());
+		return pure<Async>(Unit());
 		};};}
-	).tryCont([](ContException*){
+	).tryAsync([](AsyncException*){
 		qDebug("ok 2");
 		return pure<Cont>(Unit());
 	}).evalCont();
 
+#if 0
 	(
 		(
-			Cont<Unit>::raise(new ContException()
-		).tryCont([](ContException*){
+			Async<Unit>::raise(new AsyncException()
+		).tryAsync([](AsyncException*){
 			qDebug("ok 3");
 			return pure<Cont>(Unit());
 		})
-	).tryCont([](ContException*){
+	).tryAsync([](AsyncException*){
 		qDebug("error");
 		return pure<Cont>(Unit());
 	})).evalCont();
@@ -283,44 +283,44 @@ void testException()
 
 	(
 		(
-			Cont<Unit>::raise(new ContException())
-		).tryCont([](ContException*){
+			Async<Unit>::raise(new AsyncException())
+		).tryAsync([](AsyncException*){
 			qDebug("ok 4");
-			return Cont<Unit>::raise(new ContException());
+			return Async<Unit>::raise(new AsyncException());
 		})
-	).tryCont([](ContException*){
+	).tryAsync([](AsyncException*){
 		qDebug("ok 5");
 		return pure<Cont>(Unit());
 	}).evalCont();
 
 	(
-		Cont<Unit>::raise(new ContException()) >> [](){
+		Async<Unit>::raise(new AsyncException()) >> [](){
 		return (
-			Cont<Unit>::raise(new ContException())
-		).tryCont([](ContException*){
+			Async<Unit>::raise(new AsyncException())
+		).tryAsync([](AsyncException*){
 				qDebug("error!");
-				return Cont<Unit>::raise(new ContException());
+				return Async<Unit>::raise(new AsyncException());
 		});}
-	).tryCont([](ContException*){
+	).tryAsync([](AsyncException*){
 		qDebug("ok 6");
 		return pure<Cont>(Unit());
 	}).evalCont();
 
 	(
 		(
-			pure<Cont>(Unit())
-		).tryCont([](ContException*){
+			pure<Async>(Unit())
+		).tryAsync([](AsyncException*){
 			qDebug("error!");
-			return Cont<Unit>::raise(new ContException());
+			return Async<Unit>::raise(new AsyncException());
 		}) >> [](){
-		return Cont<Unit>::raise(new ContException());
+		return Async<Unit>::raise(new AsyncException());
 		}
-	).tryCont([](ContException*){
+	).tryAsync([](AsyncException*){
 		qDebug("ok 7/7");
 		return pure<Cont>(Unit());
 	}).evalCont();
+#endif
 
 }
-#endif
 
 

@@ -285,8 +285,8 @@ Cont<A> callCC(F /*std::function<Cont<A>(std::function<Cont<B>(A)>)>*/ f)
 template<typename A, typename ERR>
 Cont<A> tryCont_(/*C*/ std::function<Cont<A>(std::function<Cont<A>(ERR)>)> c, std::function<Cont<A>(ERR)> h)
 {
-	return callCC<int, ERR>([c, h](std::function<Cont<ERR>(A)> ok) -> Cont<A> {
-		return callCC<ERR, int>([ok, c](std::function<Cont<A>(ERR)> notOk) -> Cont<ERR> {
+	return callCC<A, ERR>([c, h](std::function<Cont<ERR>(A)> ok) -> Cont<A> {
+		return callCC<ERR, A>([ok, c](std::function<Cont<A>(ERR)> notOk) -> Cont<ERR> {
 			return c(notOk) >>= [ok](A x) -> Cont<ERR> {
 				return ok(x);
 			};
@@ -311,6 +311,154 @@ inline uint qHash(const Cont<T> &c, uint seed = 0)
 {
 	return qHash((quintptr)seed ^ reinterpret_cast<quintptr>(&c));
 }
+
+//
+// Async is a Cont + Reader Monad
+//
+
+struct AsyncException {
+	virtual ~AsyncException(){}
+};
+
+// newtype ReaderT r m a = ReaderT { runReaderT :: r -> m a }
+// specialized for
+// r == ThrowF
+// m == Cont
+template<typename A>
+struct Async
+{
+	typedef std::function<Cont<A>(AsyncException*)> ThrowF; // ThrowF aka R
+	typedef std::function<Cont<A>(ThrowF)> Type;
+
+	Async(const Type& func);
+	Async(); // dont use. Requires default constructor for A
+
+	Type runAsync() const;
+	Cont<A> runAsync1(const ThrowF& throwF) const;
+
+//	bool operator == (const Cont<A>& rhs) const {return this == &rhs;}
+	Async<ThrowF> ask();
+
+
+	static Async<A> raise(AsyncException* e);
+
+	template<typename H>
+	Cont<A> tryAsync(H handler);
+
+
+	Type m_Cont;
+
+//	void evalCont() const;
+};
+
+template<typename A, typename L>
+Async<A> lambdaToAsync(L l)
+{
+	return Async<A>(typename Async<A>::Type(l));
+}
+
+template<typename A>
+Async<A> contToAsync(Cont<A> c)
+{
+	return lambdaToAsync<A>([c](typename Async<A>::ThrowF){return c;});
+}
+
+
+template<typename A>
+Async<A>::Async(const typename Async<A>::Type& func):
+	m_Cont(func)
+{
+
+}
+
+template<typename A>
+Async<A>::Async():
+	m_Cont()
+{
+
+}
+
+template<typename A>
+typename Async<A>::Type Async<A>::runAsync() const
+{
+	return m_Cont;
+}
+
+template<typename A>
+Cont<A> Async<A>::runAsync1(const ThrowF& throwF) const
+{
+	return runAsync()(throwF);
+}
+
+//instance (Monad m) => Monad (ReaderT r m) where
+//    return a = ReaderT $ \_ -> return a
+//    s >>= f  = ReaderT $ \r -> do
+//        a <- runReaderT s r
+//        runReaderT (f a) r
+// specialized for
+// r == ThrowF
+// m == Cont
+template<typename B>
+struct Monad<Async, B>
+{
+	static inline Q_CONSTEXPR Async<B> pure(B x)
+	{
+		return contToAsync<B>(Cont<B>([x](typename Cont<B>::Inner f) -> void  {
+			f(x);
+		}));
+//		return contToAsync<B>(pure<Cont>(x));
+	}
+
+	// (>>=) :: Async a -> (a -> Async b) -> Async b
+	template<typename A>
+	static inline Q_CONSTEXPR Async<B> bind(Async<A> s, std::function<Async<B>(A)> f)
+	{
+		return Async<B>([s, f](typename Async<B>::ThrowF throwF) -> Cont<B>{
+			return s.runAsync1(throwF) >>= [f, throwF](A a){
+			return f(a).runAsync1(throwF);
+			};
+		});
+	}
+};
+
+// ask = ReaderT $ \x -> return x
+template<typename A>
+Async<typename Async<A>::ThrowF> Async<A>::ask()
+{
+	return lambdaToAsync<ThrowF>([](Async<A>::ThrowF f){
+		return pure<Async>(f);
+	});
+}
+
+//template<typename A, typename ERR>
+//Cont<A> tryCont_(/*C*/ std::function<Cont<A>(std::function<Cont<A>(ERR)>)> c, std::function<Cont<A>(ERR)> h)
+
+template<typename A>
+Cont<A> tryAsync_(Async<A> block, typename Async<A>::ThrowF handler)
+{
+	return tryCont<A, AsyncException*>([block](typename Async<A>::ThrowF throwF) -> Cont<A> {
+			return block.runAsync1(throwF);
+		}
+		,
+		handler
+	);
+}
+
+template<typename A>
+Async<A> Async<A>::raise(AsyncException* e)
+{
+	return lambdaToAsync<A>([e](Async<A>::ThrowF throwF) {
+		return throwF(e);
+	});
+}
+
+template<typename A>
+template<typename H>
+Cont<A> Async<A>::tryAsync(H handler)
+{
+	return tryAsync_(*this, typename Async<A>::ThrowF(handler));
+}
+
 
 //
 // Monad instance for boost::optional:
