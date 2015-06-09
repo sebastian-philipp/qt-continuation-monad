@@ -3,6 +3,13 @@ Haskell continuation monad in C++
 
 A basic but working implementation of the continuation monad in C++. Can be used by Qt to mitigate the callback hell
 
+Featuring:
+* A Monad implementation for ```boost::optional```, ```Continuation``` and some Qt data types.
+* Some basic monadic fuctions, like ```sequence```, ```mapM``` and ```liftM```.
+* ```callCC``` and ```tryCont``` for some basic exception handling (asynchonous exceptions!).
+* A small integraion to wrap Qt signals into a continuation.
+* Some examples.
+
 Source
 ------
 Wikibooks: [Continuation passing style][wikibooks]
