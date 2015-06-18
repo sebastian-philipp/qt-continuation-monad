@@ -2,7 +2,7 @@
 **
 ** Copyright (c) 2015 TeamDrive Systems GmbH
 **
-** All rights reserved.
+** See the file LICENSE.txt for copying permission.
 **
 ***************************************************/
 #ifndef CONT_H
